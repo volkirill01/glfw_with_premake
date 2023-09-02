@@ -87,4 +87,9 @@
       <Filter>src</Filter>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="LICENSE.md" />
+    <None Include="premake5.lua" />
+    <None Include="README.md" />
+  </ItemGroup>
 </Project>
