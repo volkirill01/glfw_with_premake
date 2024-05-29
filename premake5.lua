@@ -2,7 +2,6 @@ project "GLFW"
 	kind "StaticLib"
 	language "C"
 	staticruntime "off"
-	warnings "off"
 
 	warnings "Off"
 
