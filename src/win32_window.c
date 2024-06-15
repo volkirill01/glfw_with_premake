@@ -1658,7 +1658,17 @@ GLFWbool _glfwCreateWindowWin32(_GLFWwindow* window,
         LONG_PTR lStyle = GetWindowLongPtr(window->win32.handle, GWL_STYLE);
         lStyle &= ~WS_CAPTION;
         SetWindowLongPtr(window->win32.handle, GWL_STYLE, lStyle);
-        SetWindowPos(window->win32.handle, NULL, 0, 0, window->win32.width, window->win32.height, SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED); // Resize the window to trigger WM_NCCALCSIZE
+
+        RECT size_rect;
+        GetWindowRect(window->win32.handle, &size_rect);
+        // Inform the application of the frame change to force redrawing with the new
+        // client area that is extended into the title bar
+        SetWindowPos(
+            window->win32.handle, NULL,
+            size_rect.left, size_rect.top,
+            size_rect.right - size_rect.left, size_rect.bottom - size_rect.top,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE
+        );
     }
     return GLFW_TRUE;
 }
