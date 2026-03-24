@@ -5,8 +5,8 @@ project "GLFW"
 
 	warnings "Off"
 
-	targetdir ("%{wks.location}/bin/%{outputdir}/%{prj.name}")
-	objdir ("%{wks.location}/bin-int/%{outputdir}/%{prj.name}")
+	targetdir ("%{outputdir}/%{prj.name}")
+	objdir ("%{intermediatesdir}/%{prj.name}")
 
 	files
 	{
