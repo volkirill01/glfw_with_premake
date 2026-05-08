@@ -420,6 +420,8 @@ typedef struct _GLFWwindowWin32
     GLFWbool            frameAction;
     GLFWbool            iconified;
     GLFWbool            maximized;
+    GLFWbool            customTitlebar;
+    GLFWbool            customTitlebarFrameChangePending;
     // Whether to enable framebuffer transparency on DWM
     GLFWbool            transparent;
     GLFWbool            scaleToMonitor;

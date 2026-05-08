@@ -497,21 +497,25 @@ static void maximizeWindowManually(_GLFWwindow* window)
     style = GetWindowLongW(window->win32.handle, GWL_STYLE);
     style |= WS_MAXIMIZE;
     SetWindowLongW(window->win32.handle, GWL_STYLE, style);
+    window->win32.maximized = GLFW_TRUE;
 
     if (window->decorated)
     {
         const DWORD exStyle = GetWindowLongW(window->win32.handle, GWL_EXSTYLE);
+        const BOOL hasCaption = style & WS_CAPTION;
 
         if (_glfwIsWindows10Version1607OrGreaterWin32())
         {
             const UINT dpi = GetDpiForWindow(window->win32.handle);
             AdjustWindowRectExForDpi(&rect, style, FALSE, exStyle, dpi);
-            OffsetRect(&rect, 0, GetSystemMetricsForDpi(SM_CYCAPTION, dpi));
+            if (hasCaption)
+                OffsetRect(&rect, 0, GetSystemMetricsForDpi(SM_CYCAPTION, dpi));
         }
         else
         {
             AdjustWindowRectEx(&rect, style, FALSE, exStyle);
-            OffsetRect(&rect, 0, GetSystemMetrics(SM_CYCAPTION));
+            if (hasCaption)
+                OffsetRect(&rect, 0, GetSystemMetrics(SM_CYCAPTION));
         }
 
         rect.bottom = _glfw_min(rect.bottom, mi.rcWork.bottom);
@@ -523,6 +527,60 @@ static void maximizeWindowManually(_GLFWwindow* window)
                  rect.right - rect.left,
                  rect.bottom - rect.top,
                  SWP_NOACTIVATE | SWP_NOZORDER | SWP_FRAMECHANGED);
+}
+
+// Remove the caption so the custom titlebar can replace it
+//
+static void setupCustomTitlebarWin32(_GLFWwindow* window)
+{
+    if (!window->win32.customTitlebar)
+        return;
+
+    LONG_PTR lStyle = GetWindowLongPtr(window->win32.handle, GWL_STYLE);
+    lStyle &= ~WS_CAPTION;
+    SetWindowLongPtr(window->win32.handle, GWL_STYLE, lStyle);
+
+    window->win32.customTitlebarFrameChangePending = GLFW_TRUE;
+}
+
+// Apply the non-client frame change after the window is visible
+//
+static void finalizeCustomTitlebarWin32(_GLFWwindow* window)
+{
+    if (!window->win32.customTitlebar || !window->win32.customTitlebarFrameChangePending)
+        return;
+
+    RECT size_rect;
+    GetWindowRect(window->win32.handle, &size_rect);
+
+    // Inform the application of the frame change to force redrawing with the new
+    // client area that is extended into the title bar
+    SetWindowPos(
+        window->win32.handle, NULL,
+        size_rect.left, size_rect.top,
+        size_rect.right - size_rect.left, size_rect.bottom - size_rect.top,
+        SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE
+    );
+
+    window->win32.customTitlebarFrameChangePending = GLFW_FALSE;
+}
+
+// Refresh custom titlebar frame metrics after a visible state change
+//
+static void refreshCustomTitlebarWin32(_GLFWwindow* window)
+{
+    if (!window->win32.customTitlebar)
+        return;
+
+    RECT size_rect;
+    GetWindowRect(window->win32.handle, &size_rect);
+
+    SetWindowPos(
+        window->win32.handle, NULL,
+        size_rect.left, size_rect.top,
+        size_rect.right - size_rect.left, size_rect.bottom - size_rect.top,
+        SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE
+    );
 }
 
 // Window procedure for user-created windows
@@ -1309,7 +1367,7 @@ static LRESULT CALLBACK windowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM l
 
         case WM_ACTIVATE:
         {
-            if (_glfw.hints.window.titlebar)
+            if (!window->win32.customTitlebar)
                 break;
 
             RECT title_bar_rect = { 0 };
@@ -1317,12 +1375,12 @@ static LRESULT CALLBACK windowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM l
         }
         case WM_NCCALCSIZE:
         {
-            if (_glfw.hints.window.titlebar || !hasThickFrame || !wParam)
+            if (!window->win32.customTitlebar || !hasThickFrame || !wParam)
                 break;
 
             // For custom frames
 
-            if (IsZoomed(hWnd))
+            if (IsZoomed(hWnd) || window->win32.maximized)
                 break;
 
             // Shrink client area by border thickness so we can
@@ -1350,7 +1408,7 @@ static LRESULT CALLBACK windowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM l
 
         case WM_NCHITTEST:
         {
-            if (_glfw.hints.window.titlebar || !hasThickFrame)
+            if (!window->win32.customTitlebar || !hasThickFrame)
                 break;
 
             // Hit test for custom frames
@@ -1631,6 +1689,13 @@ GLFWbool _glfwCreateWindowWin32(_GLFWwindow* window,
     if (wndconfig->mousePassthrough)
         _glfwSetWindowMousePassthroughWin32(window, GLFW_TRUE);
 
+    window->win32.customTitlebar = wndconfig->titlebar == GLFW_FALSE;
+    window->win32.customTitlebarFrameChangePending = GLFW_FALSE;
+
+    // [Tethys Custom]
+    // Remove caption before window creation finishes, then finalize once shown
+    setupCustomTitlebarWin32(window);
+
     if (window->monitor)
     {
         _glfwShowWindowWin32(window);
@@ -1649,26 +1714,6 @@ GLFWbool _glfwCreateWindowWin32(_GLFWwindow* window,
             if (wndconfig->focused)
                 _glfwFocusWindowWin32(window);
         }
-    }
-
-    // [Tethys Custom]
-    // Remove caption and resize window
-    if (wndconfig->titlebar == GLFW_FALSE)
-    {
-        LONG_PTR lStyle = GetWindowLongPtr(window->win32.handle, GWL_STYLE);
-        lStyle &= ~WS_CAPTION;
-        SetWindowLongPtr(window->win32.handle, GWL_STYLE, lStyle);
-
-        RECT size_rect;
-        GetWindowRect(window->win32.handle, &size_rect);
-        // Inform the application of the frame change to force redrawing with the new
-        // client area that is extended into the title bar
-        SetWindowPos(
-            window->win32.handle, NULL,
-            size_rect.left, size_rect.top,
-            size_rect.right - size_rect.left, size_rect.bottom - size_rect.top,
-            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE
-        );
     }
     return GLFW_TRUE;
 }
@@ -1909,6 +1954,7 @@ void _glfwIconifyWindowWin32(_GLFWwindow* window)
 void _glfwRestoreWindowWin32(_GLFWwindow* window)
 {
     ShowWindow(window->win32.handle, SW_RESTORE);
+    refreshCustomTitlebarWin32(window);
 }
 
 void _glfwMaximizeWindowWin32(_GLFWwindow* window)
@@ -1922,6 +1968,7 @@ void _glfwMaximizeWindowWin32(_GLFWwindow* window)
 void _glfwShowWindowWin32(_GLFWwindow* window)
 {
     ShowWindow(window->win32.handle, SW_SHOWNA);
+    finalizeCustomTitlebarWin32(window);
 }
 
 void _glfwHideWindowWin32(_GLFWwindow* window)
