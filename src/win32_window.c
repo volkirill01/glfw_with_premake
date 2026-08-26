@@ -1372,6 +1372,7 @@ static LRESULT CALLBACK windowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM l
 
             RECT title_bar_rect = { 0 };
             InvalidateRect(hWnd, &title_bar_rect, FALSE);
+            break;
         }
         case WM_NCCALCSIZE:
         {
